@@ -1,141 +1,808 @@
 #!/usr/bin/env python3
-"""
-Verifies that preprocessing (gravity removal + uniform time-base resampling)
-actually worked, on every file in this folder and its subfolders.
-
-"""
 
 import os
 import glob
 import numpy as np
 import pandas as pd
-from scipy.signal import butter, filtfilt
+import matplotlib.pyplot as plt
 
-FS_EXPECTED = 402.1          # Hz - expected uniform sample rate
-DT_JITTER_LIMIT = 1e-6       # s - max allowed std of the time step
-FS_TOLERANCE = 1.0           # Hz - how far the measured rate may drift from FS_EXPECTED
-GRAVITY_CUTOFF_HZ = 0.3      # Hz - must match the cutoff used during preprocessing
-GRAVITY_RESIDUAL_LIMIT = 5.0  # m/s^2 - max allowed low-pass-band energy after removal.
+from scipy.signal import welch
 
 
-SKIP_KEYWORDS = ["label", "manifest"]
+# ============================================================
+# SETTINGS
+# ============================================================
+
+FS_TARGET = 402.1          # Expected sampling frequency [Hz]
+
+# Frequency below which we consider the signal to be
+# "very low frequency" for gravity-removal verification.
+LOW_FREQ_LIMIT = 0.3       # Hz
+
+# Tolerance for sampling-frequency verification.
+# 0.5% of 402.1 Hz ≈ 2 Hz.
+FS_TOLERANCE_PERCENT = 0.5
+
+# Tolerance for time-step uniformity.
+# 0.1% of the nominal sample interval.
+DT_TOLERANCE_PERCENT = 0.1
+
+CLASS_DIRS = [
+    "servo_only",
+    "piston_only",
+    "both_simultaneous",
+    "both_alternating"
+]
 
 
-def find_csv_files(root):
-    all_csvs = glob.glob(os.path.join(root, "**", "*.csv"), recursive=True)
-    this_file = os.path.abspath(__file__)
-    out = []
-    for f in all_csvs:
-        name_lower = os.path.basename(f).lower()
-        if any(k in name_lower for k in SKIP_KEYWORDS):
-            continue
-        if os.path.abspath(f) == this_file:
-            continue
-        out.append(f)
-    return sorted(out)
+# ============================================================
+# COLUMN HANDLING
+# ============================================================
+
+TIME_COL = "Time (s)"
+AX_COL = "Acceleration x (m/s^2)"
+AY_COL = "Acceleration y (m/s^2)"
+AZ_COL = "Acceleration z (m/s^2)"
+ABS_COL = "Absolute acceleration (m/s^2)"
 
 
-def check_file(path):
-    result = {"file": path, "pass": True, "issues": []}
+# ============================================================
+# LOAD FILE
+# ============================================================
 
-    try:
-        df = pd.read_csv(path)
-    except Exception as e:
-        result["pass"] = False
-        result["issues"].append(f"could not read file: {e}")
-        return result
+def load_file(path):
 
-    if df.shape[1] < 4:
-        result["pass"] = False
-        result["issues"].append(f"expected >=4 columns, found {df.shape[1]}")
-        return result
+    df = pd.read_csv(path)
 
-    df.columns = ["t", "ax", "ay", "az"] + list(df.columns[4:])
+    required = [
+        TIME_COL,
+        AX_COL,
+        AY_COL,
+        AZ_COL
+    ]
 
-    for col in ["t", "ax", "ay", "az"]:
-        if not np.issubdtype(df[col].dtype, np.number):
-            result["pass"] = False
-            result["issues"].append(f"column '{col}' is not numeric")
-            return result
+    missing = [c for c in required if c not in df.columns]
 
-    if df[["t", "ax", "ay", "az"]].isna().any().any():
-        result["pass"] = False
-        result["issues"].append("contains NaN values")
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}"
+        )
 
-    # --- uniform time base check ---
-    t = df["t"].values
-    if len(t) < 3:
-        result["pass"] = False
-        result["issues"].append("too few samples to check timing")
-        return result
+    return df
+
+
+# ============================================================
+# SAMPLING VERIFICATION
+# ============================================================
+
+def verify_sampling(df):
+
+    t = df[TIME_COL].to_numpy(dtype=float)
 
     dt = np.diff(t)
-    dt_std = dt.std()
-    measured_fs = 1.0 / dt.mean()
 
-    if dt_std > DT_JITTER_LIMIT:
-        result["pass"] = False
-        result["issues"].append(
-            f"time base not uniform (dt std = {dt_std:.2e} s, expected < {DT_JITTER_LIMIT:.0e} s)"
-        )
+    result = {}
 
-    if abs(measured_fs - FS_EXPECTED) > FS_TOLERANCE:
-        result["pass"] = False
-        result["issues"].append(
-            f"sample rate {measured_fs:.2f} Hz is far from expected {FS_EXPECTED} Hz"
-        )
+    result["Number of samples"] = len(t)
 
-    # --- gravity removal check (low-pass band, not raw mean - see docstring) ---
-    nyq = measured_fs / 2
-    b, a = butter(4, GRAVITY_CUTOFF_HZ / nyq, btype="low")
-    lowpass = np.stack([filtfilt(b, a, df[c].values) for c in ["ax", "ay", "az"]], axis=1)
-    residual = np.sqrt(np.mean(np.sum(lowpass ** 2, axis=1)))
+    result["Duration (s)"] = t[-1] - t[0]
 
-    if residual > GRAVITY_RESIDUAL_LIMIT:
-        result["pass"] = False
-        result["issues"].append(
-            f"gravity residual too large (||mean|| = {residual:.3f} m/s^2, "
-            f"expected < {GRAVITY_RESIDUAL_LIMIT} m/s^2)"
-        )
+    # --------------------------------------------------------
+    # Basic timestamp checks
+    # --------------------------------------------------------
 
-    result["dt_std"] = dt_std
-    result["measured_fs"] = measured_fs
-    result["gravity_residual"] = residual
+    result["Non-monotonic samples"] = np.sum(dt <= 0)
+
+    # Expected dt
+    expected_dt = 1.0 / FS_TARGET
+
+    result["Expected dt (s)"] = expected_dt
+
+    result["Mean dt (s)"] = np.mean(dt)
+
+    result["Std dt (s)"] = np.std(dt)
+
+    result["Min dt (s)"] = np.min(dt)
+
+    result["Max dt (s)"] = np.max(dt)
+
+    # Sampling frequency from timestamps
+    fs_measured = 1.0 / np.mean(dt)
+
+    result["Measured Fs (Hz)"] = fs_measured
+
+    fs_error_percent = (
+        (fs_measured - FS_TARGET)
+        / FS_TARGET
+        * 100
+    )
+
+    result["Fs error (%)"] = fs_error_percent
+
+    # --------------------------------------------------------
+    # Uniformity
+    # --------------------------------------------------------
+
+    dt_error_percent = (
+        np.abs(dt - expected_dt)
+        / expected_dt
+        * 100
+    )
+
+    result["Maximum dt deviation (%)"] = np.max(
+        dt_error_percent
+    )
+
+    result["RMS dt deviation (%)"] = np.sqrt(
+        np.mean(dt_error_percent ** 2)
+    )
+
+    result["Large dt deviations"] = np.sum(
+        dt_error_percent > DT_TOLERANCE_PERCENT
+    )
+
+    # --------------------------------------------------------
+    # Pass/fail
+    # --------------------------------------------------------
+
+    fs_ok = (
+        abs(fs_error_percent)
+        <= FS_TOLERANCE_PERCENT
+    )
+
+    uniform_ok = (
+        np.max(dt_error_percent)
+        <= DT_TOLERANCE_PERCENT
+    )
+
+    monotonic_ok = (
+        result["Non-monotonic samples"] == 0
+    )
+
+    result["Sampling PASS"] = (
+        fs_ok and uniform_ok and monotonic_ok
+    )
+
     return result
 
 
-def main(root="."):
-    root = os.path.abspath(root)
-    files = find_csv_files(root)
+# ============================================================
+# GRAVITY / LOW FREQUENCY VERIFICATION
+# ============================================================
 
-    if not files:
-        print(f"No CSV files found under {root} (excluding label/manifest files).")
+def verify_gravity_removal(df):
+
+    result = {}
+
+    axes = {
+        "X": df[AX_COL].to_numpy(dtype=float),
+        "Y": df[AY_COL].to_numpy(dtype=float),
+        "Z": df[AZ_COL].to_numpy(dtype=float)
+    }
+
+    # --------------------------------------------------------
+    # Mean value
+    #
+    # After gravity removal, the mean should generally be
+    # close to zero for a stationary / steady portion.
+    # --------------------------------------------------------
+
+    for axis, signal in axes.items():
+
+        result[f"{axis} mean (m/s^2)"] = np.mean(signal)
+
+        result[f"{axis} RMS (m/s^2)"] = np.sqrt(
+            np.mean(signal ** 2)
+        )
+
+    # --------------------------------------------------------
+    # Combined magnitude
+    # --------------------------------------------------------
+
+    magnitude = np.sqrt(
+        axes["X"]**2 +
+        axes["Y"]**2 +
+        axes["Z"]**2
+    )
+
+    result["Mean magnitude (m/s^2)"] = np.mean(
+        magnitude
+    )
+
+    result["RMS magnitude (m/s^2)"] = np.sqrt(
+        np.mean(magnitude ** 2)
+    )
+
+    # --------------------------------------------------------
+    # Low-frequency power
+    # --------------------------------------------------------
+
+    fs = FS_TARGET
+
+    low_freq_ratios = []
+
+    for axis, signal in axes.items():
+
+        # Welch PSD
+        f, Pxx = welch(
+            signal,
+            fs=fs,
+            nperseg=min(4096, len(signal))
+        )
+
+        total_power = np.trapz(Pxx, f)
+
+        low_mask = f <= LOW_FREQ_LIMIT
+
+        low_power = np.trapz(
+            Pxx[low_mask],
+            f[low_mask]
+        )
+
+        if total_power > 0:
+            low_ratio = (
+                low_power / total_power * 100
+            )
+        else:
+            low_ratio = 0.0
+
+        result[
+            f"{axis} low-frequency power < {LOW_FREQ_LIMIT} Hz (%)"
+        ] = low_ratio
+
+        low_freq_ratios.append(low_ratio)
+
+    result[
+        f"Average low-frequency power < {LOW_FREQ_LIMIT} Hz (%)"
+    ] = np.mean(low_freq_ratios)
+
+    return result
+
+
+# ============================================================
+# PROCESS ALL FILES
+# ============================================================
+
+def process_all(root):
+
+    rows = []
+
+    preprocessed_root = root
+
+    if not os.path.isdir(preprocessed_root):
+
+        raise FileNotFoundError(
+            "Could not find 'preprocessed/' folder."
+        )
+
+    for cls in CLASS_DIRS:
+
+        class_dir = os.path.join(
+            preprocessed_root,
+            cls
+        )
+
+        if not os.path.isdir(class_dir):
+
+            print(
+                f"WARNING: Missing folder: {cls}"
+            )
+
+            continue
+
+        files = sorted(
+            glob.glob(
+                os.path.join(
+                    class_dir,
+                    "*.csv"
+                )
+            )
+        )
+
+        print(
+            f"\nChecking {cls}: {len(files)} files"
+        )
+
+        for path in files:
+
+            filename = os.path.basename(path)
+
+            try:
+
+                df = load_file(path)
+
+                sampling = verify_sampling(df)
+
+                gravity = verify_gravity_removal(df)
+
+                row = {
+                    "Class": cls,
+                    "File": filename
+                }
+
+                row.update(sampling)
+                row.update(gravity)
+
+                rows.append(row)
+
+                print(
+                    f"  {filename}: "
+                    f"{'PASS' if sampling['Sampling PASS'] else 'CHECK'}"
+                )
+
+            except Exception as e:
+
+                print(
+                    f"  ERROR: {filename}: {e}"
+                )
+
+    return pd.DataFrame(rows)
+
+
+# ============================================================
+# PLOT SAMPLING VERIFICATION
+# ============================================================
+
+def plot_sampling(df, output_dir):
+
+    classes = df["Class"].unique()
+
+    plt.figure(figsize=(12, 6))
+
+    for cls in classes:
+
+        subset = df[df["Class"] == cls]
+
+        plt.scatter(
+            np.arange(len(subset)),
+            subset["Measured Fs (Hz)"],
+            label=cls,
+            alpha=0.7
+        )
+
+    plt.axhline(
+        FS_TARGET,
+        linestyle="--",
+        linewidth=2,
+        label=f"Target = {FS_TARGET} Hz"
+    )
+
+    tolerance = (
+        FS_TARGET *
+        FS_TOLERANCE_PERCENT /
+        100
+    )
+
+    plt.axhline(
+        FS_TARGET + tolerance,
+        linestyle=":"
+    )
+
+    plt.axhline(
+        FS_TARGET - tolerance,
+        linestyle=":"
+    )
+
+    plt.xlabel("File index")
+    plt.ylabel("Measured sampling frequency (Hz)")
+    plt.title("Sampling Frequency Verification")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+
+    plt.tight_layout()
+
+    plt.savefig(
+        os.path.join(
+            output_dir,
+            "sampling_verification.png"
+        ),
+        dpi=200
+    )
+
+    plt.close()
+
+
+# ============================================================
+# PLOT GRAVITY VERIFICATION
+# ============================================================
+
+def plot_gravity(df, output_dir):
+
+    classes = df["Class"].unique()
+
+    fig, axes = plt.subplots(
+        3,
+        1,
+        figsize=(12, 10),
+        sharex=True
+    )
+
+    axis_names = ["X", "Y", "Z"]
+
+    for i, axis in enumerate(axis_names):
+
+        col = f"{axis} mean (m/s^2)"
+
+        for cls in classes:
+
+            subset = df[df["Class"] == cls]
+
+            axes[i].scatter(
+                np.arange(len(subset)),
+                subset[col],
+                label=cls,
+                alpha=0.7
+            )
+
+        axes[i].axhline(
+            0,
+            linestyle="--",
+            linewidth=1
+        )
+
+        axes[i].set_ylabel(
+            f"{axis} mean (m/s²)"
+        )
+
+        axes[i].grid(
+            True,
+            alpha=0.3
+        )
+
+    axes[-1].set_xlabel("File index")
+
+    fig.suptitle(
+        "Gravity Removal Verification — Mean Acceleration"
+    )
+
+    handles, labels = axes[0].get_legend_handles_labels()
+
+    fig.legend(
+        handles,
+        labels,
+        loc="upper right"
+    )
+
+    plt.tight_layout()
+
+    plt.savefig(
+        os.path.join(
+            output_dir,
+            "gravity_removal_verification.png"
+        ),
+        dpi=200
+    )
+
+    plt.close()
+
+
+# ============================================================
+# LOW FREQUENCY POWER PLOT
+# ============================================================
+
+def plot_frequency(df, output_dir):
+
+    classes = df["Class"].unique()
+
+    col = (
+        f"Average low-frequency power "
+        f"< {LOW_FREQ_LIMIT} Hz (%)"
+    )
+
+    plt.figure(figsize=(12, 6))
+
+    for cls in classes:
+
+        subset = df[df["Class"] == cls]
+
+        plt.scatter(
+            np.arange(len(subset)),
+            subset[col],
+            label=cls,
+            alpha=0.7
+        )
+
+    plt.xlabel("File index")
+
+    plt.ylabel(
+        f"Power below {LOW_FREQ_LIMIT} Hz (%)"
+    )
+
+    plt.title(
+        "Residual Very-Low-Frequency Power"
+    )
+
+    plt.grid(
+        True,
+        alpha=0.3
+    )
+
+    plt.legend()
+
+    plt.tight_layout()
+
+    plt.savefig(
+        os.path.join(
+            output_dir,
+            "frequency_verification.png"
+        ),
+        dpi=200
+    )
+
+    plt.close()
+
+
+# ============================================================
+# TEXT REPORT
+# ============================================================
+
+def generate_report(df, output_dir):
+
+    report_path = os.path.join(
+        output_dir,
+        "verification_report.txt"
+    )
+
+    with open(
+        report_path,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        f.write(
+            "ACCELEROMETER PREPROCESSING VERIFICATION REPORT\n"
+        )
+
+        f.write(
+            "=" * 60 + "\n\n"
+        )
+
+        f.write(
+            f"Target sampling frequency: {FS_TARGET} Hz\n"
+        )
+
+        f.write(
+            f"Low-frequency verification limit: "
+            f"{LOW_FREQ_LIMIT} Hz\n\n"
+        )
+
+        # ----------------------------------------------------
+        # Overall
+        # ----------------------------------------------------
+
+        total = len(df)
+
+        sampling_pass = df[
+            "Sampling PASS"
+        ].sum()
+
+        f.write(
+            f"Total files checked: {total}\n"
+        )
+
+        f.write(
+            f"Sampling verification passed: "
+            f"{sampling_pass}/{total}\n\n"
+        )
+
+        # ----------------------------------------------------
+        # Per class
+        # ----------------------------------------------------
+
+        for cls in CLASS_DIRS:
+
+            subset = df[
+                df["Class"] == cls
+            ]
+
+            if len(subset) == 0:
+                continue
+
+            f.write(
+                f"\nCLASS: {cls}\n"
+            )
+
+            f.write(
+                "-" * 50 + "\n"
+            )
+
+            f.write(
+                f"Files: {len(subset)}\n"
+            )
+
+            f.write(
+                f"Mean measured Fs: "
+                f"{subset['Measured Fs (Hz)'].mean():.4f} Hz\n"
+            )
+
+            f.write(
+                f"Std measured Fs: "
+                f"{subset['Measured Fs (Hz)'].std():.6f} Hz\n"
+            )
+
+            f.write(
+                f"Maximum dt deviation: "
+                f"{subset['Maximum dt deviation (%)'].max():.6f}%\n"
+            )
+
+            f.write(
+                f"Mean X acceleration: "
+                f"{subset['X mean (m/s^2)'].mean():.6f} m/s²\n"
+            )
+
+            f.write(
+                f"Mean Y acceleration: "
+                f"{subset['Y mean (m/s^2)'].mean():.6f} m/s²\n"
+            )
+
+            f.write(
+                f"Mean Z acceleration: "
+                f"{subset['Z mean (m/s^2)'].mean():.6f} m/s²\n"
+            )
+
+            low_col = (
+                f"Average low-frequency power "
+                f"< {LOW_FREQ_LIMIT} Hz (%)"
+            )
+
+            f.write(
+                f"Mean low-frequency power: "
+                f"{subset[low_col].mean():.4f}%\n"
+            )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    root = os.path.dirname(os.path.abspath(__file__))
+
+    output_dir = os.path.join(
+        root,
+        "verification_results"
+    )
+    os.makedirs(
+        output_dir,
+        exist_ok=True
+    )
+
+    print("=" * 60)
+    print("ACCELEROMETER PREPROCESSING VERIFICATION")
+    print("=" * 60)
+
+    df = process_all(root)
+
+    if len(df) == 0:
+
+        print(
+            "\nNo valid CSV files found."
+        )
+
         return
 
-    print(f"Checking {len(files)} file(s) under {root}\n")
+    # --------------------------------------------------------
+    # Save summary
+    # --------------------------------------------------------
 
-    n_pass = 0
-    n_fail = 0
+    summary_path = os.path.join(
+        output_dir,
+        "verification_summary.csv"
+    )
 
-    for f in files:
-        rel = os.path.relpath(f, root)
-        r = check_file(f)
-        if r["pass"]:
-            n_pass += 1
-            print(f"[OK]   {rel}   (Fs={r['measured_fs']:.2f} Hz, dt_std={r['dt_std']:.2e} s, "
-                  f"gravity_residual={r['gravity_residual']:.3f} m/s^2)")
-        else:
-            n_fail += 1
-            print(f"[FAIL] {rel}")
-            for issue in r["issues"]:
-                print(f"        - {issue}")
+    df.to_csv(
+        summary_path,
+        index=False
+    )
 
-    print(f"\n{n_pass}/{len(files)} files passed all checks.")
-    if n_fail:
-        print(f"{n_fail} file(s) need attention - see [FAIL] lines above.")
+    # --------------------------------------------------------
+    # Generate plots
+    # --------------------------------------------------------
+
+    plot_sampling(
+        df,
+        output_dir
+    )
+
+    plot_gravity(
+        df,
+        output_dir
+    )
+
+    plot_frequency(
+        df,
+        output_dir
+    )
+
+    # --------------------------------------------------------
+    # Generate report
+    # --------------------------------------------------------
+
+    generate_report(
+        df,
+        output_dir
+    )
+
+    # --------------------------------------------------------
+    # Console summary
+    # --------------------------------------------------------
+
+    print("\n")
+    print("=" * 60)
+    print("VERIFICATION SUMMARY")
+    print("=" * 60)
+
+    total = len(df)
+
+    passed = int(
+        df["Sampling PASS"].sum()
+    )
+
+    print(
+        f"\nSampling verification: "
+        f"{passed}/{total} files passed"
+    )
+
+    print(
+        f"\nMean measured sampling frequency:"
+        f" {df['Measured Fs (Hz)'].mean():.4f} Hz"
+    )
+
+    print(
+        f"Std of measured sampling frequency:"
+        f" {df['Measured Fs (Hz)'].std():.6f} Hz"
+    )
+
+    print(
+        f"\nMaximum observed dt deviation:"
+        f" {df['Maximum dt deviation (%)'].max():.6f}%"
+    )
+
+    low_col = (
+        f"Average low-frequency power "
+        f"< {LOW_FREQ_LIMIT} Hz (%)"
+    )
+
+    print(
+        f"\nMean residual low-frequency power:"
+        f" {df[low_col].mean():.4f}%"
+    )
+
+    print(
+        "\nResults saved to:"
+    )
+
+    print(
+        f"  {output_dir}"
+    )
+
+    print(
+        "\nGenerated files:"
+    )
+
+    print(
+        "  verification_summary.csv"
+    )
+
+    print(
+        "  sampling_verification.png"
+    )
+
+    print(
+        "  gravity_removal_verification.png"
+    )
+
+    print(
+        "  frequency_verification.png"
+    )
+
+    print(
+        "  verification_report.txt"
+    )
+
+    print("\nDone.")
 
 
 if __name__ == "__main__":
-    import sys
-    root_arg = sys.argv[1] if len(sys.argv) > 1 else "."
-    main(root_arg)
+    main()

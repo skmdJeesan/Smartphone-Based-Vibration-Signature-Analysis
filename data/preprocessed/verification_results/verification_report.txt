@@ -1,0 +1,53 @@
+ACCELEROMETER PREPROCESSING VERIFICATION REPORT
+============================================================
+
+Target sampling frequency: 402.1 Hz
+Low-frequency verification limit: 0.3 Hz
+
+Total files checked: 60
+Sampling verification passed: 60/60
+
+
+CLASS: servo_only
+--------------------------------------------------
+Files: 15
+Mean measured Fs: 402.1000 Hz
+Std measured Fs: 0.000000 Hz
+Maximum dt deviation: 0.000000%
+Mean X acceleration: 0.006255 m/s²
+Mean Y acceleration: 0.041611 m/s²
+Mean Z acceleration: 0.000152 m/s²
+Mean low-frequency power: 0.3840%
+
+CLASS: piston_only
+--------------------------------------------------
+Files: 15
+Mean measured Fs: 402.1000 Hz
+Std measured Fs: 0.000000 Hz
+Maximum dt deviation: 0.000000%
+Mean X acceleration: 0.019051 m/s²
+Mean Y acceleration: 0.052923 m/s²
+Mean Z acceleration: -0.272853 m/s²
+Mean low-frequency power: 12.2402%
+
+CLASS: both_simultaneous
+--------------------------------------------------
+Files: 15
+Mean measured Fs: 402.1000 Hz
+Std measured Fs: 0.000000 Hz
+Maximum dt deviation: 0.000000%
+Mean X acceleration: 0.035097 m/s²
+Mean Y acceleration: 0.040689 m/s²
+Mean Z acceleration: 0.841283 m/s²
+Mean low-frequency power: 5.1914%
+
+CLASS: both_alternating
+--------------------------------------------------
+Files: 15
+Mean measured Fs: 402.1000 Hz
+Std measured Fs: 0.000000 Hz
+Maximum dt deviation: 0.000000%
+Mean X acceleration: 0.016375 m/s²
+Mean Y acceleration: 0.020275 m/s²
+Mean Z acceleration: 0.072585 m/s²
+Mean low-frequency power: 7.4155%
