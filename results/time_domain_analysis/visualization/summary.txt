@@ -1,0 +1,31 @@
+TIME-DOMAIN ACCELEROMETER ANALYSIS
+=================================================================
+
+
+RMS acceleration (m/s²)
+-----------------------------------------------------------------
+Servo only               1.6122 ± 0.9090
+Piston only              3.1151 ± 2.8948
+Both simultaneous        3.7839 ± 2.2406
+Both alternating         2.9611 ± 1.8965
+
+Peak-to-peak acceleration (m/s²)
+-----------------------------------------------------------------
+Servo only               13.3036 ± 7.3829
+Piston only              24.6620 ± 22.5538
+Both simultaneous        29.3875 ± 16.3016
+Both alternating         27.5592 ± 14.4922
+
+Crest factor
+-----------------------------------------------------------------
+Servo only               6.3702 ± 1.1393
+Piston only              5.9414 ± 0.6723
+Both simultaneous        5.6431 ± 0.9637
+Both alternating         7.3700 ± 1.9856
+
+Excess kurtosis
+-----------------------------------------------------------------
+Servo only               10.5326 ± 5.0646
+Piston only              7.5865 ± 2.7468
+Both simultaneous        7.3093 ± 3.2210
+Both alternating         17.1899 ± 15.0318
