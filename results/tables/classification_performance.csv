@@ -1,0 +1,6 @@
+model,features,val_accuracy_%,cv5_accuracy_mean_%,cv5_accuracy_std_%,pooled_oof_accuracy_%
+Logistic regression,"log10_z_power, log10_xy_power, xy_RMS",88.9,93.3,6.2,93.3
+k-NN (k=5),"log10_z_power, log10_xy_power, xy_RMS",94.4,93.3,6.2,93.3
+LDA,"log10_z_power, log10_xy_power, xy_RMS",94.4,95.0,4.1,95.0
+Gaussian NB,"log10_z_power, log10_xy_power, xy_RMS",94.4,96.7,6.7,96.7
+Random forest,"log10_z_power, log10_xy_power, xy_RMS",100.0,96.7,4.1,96.7
