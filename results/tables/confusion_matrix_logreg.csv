@@ -1,0 +1,5 @@
+,piston,servo,both-sim,both-alt
+piston,15,0,0,0
+servo,0,15,0,0
+both-sim,0,0,15,0
+both-alt,2,0,2,11
