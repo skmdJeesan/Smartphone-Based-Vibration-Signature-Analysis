@@ -62,6 +62,12 @@ RANDOM_STATE = 42
 VAL_FRACTION = 0.30
 
 ip.setup()
+for _k in ip.WIDTHS:
+    ip.WIDTHS[_k] *= 1.6
+plt.rcParams.update({
+    "font.size": 11.5, "axes.titlesize": 12.5, "axes.labelsize": 12,
+    "xtick.labelsize": 10.5, "ytick.labelsize": 10.5, "legend.fontsize": 10.5,
+})
 COLORS = dict(zip(ORDER, ip.palette("categorical", 4)))
 
 
@@ -131,7 +137,7 @@ def plot_learning_curves(X, y):
             ax.plot(n, m, marker="o", color=c, label=lab)
             ax.fill_between(n, m - s, m + s, color=c, alpha=0.15, linewidth=0)
         ax.set_ylim(60, 103); ax.set_xlabel("training recordings"); ax.set_ylabel("accuracy (%)")
-        ax.legend(loc="lower right", fontsize=7)
+        ax.legend(loc="lower right", fontsize=10)
     axes[-1].axis("off")
     ip.label_panels(axes[:5], titles=[name for _, (name, _) in models().items()])
     ip.finish(fig, os.path.join(PLOTS, "learning_curves"))

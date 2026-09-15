@@ -182,9 +182,9 @@ def label_panels(axes, labels: Sequence[str] | None = None, titles: Sequence[str
     for i, (ax, lab) in enumerate(zip(axes, labels)):
         bold = r"$\mathbf{" + lab + "}$"
         if titles is not None:
-            ax.set_title(f"{bold} {titles[i]}", loc="left", fontsize=8.5, pad=4)
+            ax.set_title(f"{bold} {titles[i]}", loc="left", fontsize=11.5, pad=5)
         else:
-            ax.text(x, y, bold, transform=ax.transAxes, fontsize=9, va="bottom", ha="left")
+            ax.text(x, y, bold, transform=ax.transAxes, fontsize=11, va="bottom", ha="left")
 
 
 def legend_outside(fig_or_ax, where: str = "top", ncol: int | None = None, title: str | None = None, **kw):
@@ -270,7 +270,7 @@ def heatmap(ax, data, xlabels=None, ylabels=None, signed: bool | None = None, va
                 v = data[i, j]
                 rgba = cmap(norm(v))
                 lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
-                ax.text(j, i, fmt.format(v), ha="center", va="center", fontsize=6.5,
+                ax.text(j, i, fmt.format(v), ha="center", va="center", fontsize=9,
                         color="white" if lum < 0.5 else "black")
     if cbar:
         cb = ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.03)

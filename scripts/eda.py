@@ -47,6 +47,14 @@ SHORT_CLS = {"piston_only": "piston", "servo_only": "servo",
              "both_simultaneous": "both-sim", "both_alternating": "both-alt"}
 
 ip.setup()
+# Larger canvas and fonts than the paper-column defaults, for on-screen / report
+# viewing (the small ICLR sizes read as cluttered when viewed full-width).
+for _k in ip.WIDTHS:
+    ip.WIDTHS[_k] *= 1.6
+plt.rcParams.update({
+    "font.size": 11.5, "axes.titlesize": 12.5, "axes.labelsize": 12,
+    "xtick.labelsize": 10.5, "ytick.labelsize": 10.5, "legend.fontsize": 10.5,
+})
 np.random.seed(0)
 COLORS = dict(zip(ORDER, ip.palette("categorical", 4)))
 
@@ -141,7 +149,7 @@ def fig_distributions(wide):
 
 def fig_separability(rank):
     top = rank.head(15).iloc[::-1]
-    fig, ax = ip.figure(width="wide", height=3.5)
+    fig, ax = ip.figure(width="wide", height=5.4)
     ax.barh(range(len(top)), top["F"], color=ip.CATEGORICAL[0], edgecolor="white", linewidth=0.4)
     ax.set_yticks(range(len(top)), [short(f) for f in top["feature"]])
     ax.set_ylim(-0.6, len(top) - 0.4)

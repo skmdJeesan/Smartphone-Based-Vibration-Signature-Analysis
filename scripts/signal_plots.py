@@ -30,6 +30,12 @@ TITLE = {"piston_only": "Piston only", "servo_only": "Servo only",
          "both_simultaneous": "Both simultaneous", "both_alternating": "Both alternating"}
 TRIAL = "trial01"
 ip.setup()
+for _k in ip.WIDTHS:
+    ip.WIDTHS[_k] *= 1.6
+plt.rcParams.update({
+    "font.size": 11.5, "axes.titlesize": 12.5, "axes.labelsize": 12,
+    "xtick.labelsize": 10.5, "ytick.labelsize": 10.5, "legend.fontsize": 10.5,
+})
 
 
 def load(cls):
@@ -48,9 +54,9 @@ def signals():
     for ax, cls in zip(axes, ORDER):
         t, x, y, z = load(cls)
         for sig, lab, c in [(x, "x", axcols[0]), (y, "y", axcols[1]), (z, "z", axcols[2])]:
-            ax.plot(t, sig, lw=0.5, color=c, label=lab)
+            ax.plot(t, sig, lw=0.6, color=c, label=lab)
         ax.set_ylim(-12, 12); ax.set_ylabel("accel (m/s$^2$)")
-        ax.legend(loc="upper right", ncol=3, fontsize=7, handlelength=1.0, columnspacing=0.8)
+        ax.legend(loc="upper right", ncol=3, fontsize=9.5, handlelength=1.0, columnspacing=0.8)
     for ax in axes[2:]:
         ax.set_xlabel("time (s)")
     ip.label_panels(axes, titles=[TITLE[c] for c in ORDER])
